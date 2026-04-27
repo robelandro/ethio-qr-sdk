@@ -5,6 +5,9 @@ bun.lockb
 # Build output
 dist/
 
+# Examples (local development only)
+examples.ts
+
 # Environment
 .env
 .env.local

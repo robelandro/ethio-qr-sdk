@@ -5,13 +5,13 @@
   "author": "Robel Andro",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/EthioQR.js",
-  "module": "./dist/EthioQR.js",
-  "types": "./dist/EthioQR.d.ts",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./dist/EthioQR.js",
-      "types": "./dist/EthioQR.d.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "files": [
