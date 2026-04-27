@@ -2,7 +2,7 @@
   "name": "ethio-qr-sdk",
   "version": "1.0.0",
   "description": "NBE/EthSwitch-compliant EMVCo QR code generator for Ethiopian interoperable P2M payments (IPS ET)",
-  "author": "Robel Andro",
+  "author": "NFTALEM AREGA",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
