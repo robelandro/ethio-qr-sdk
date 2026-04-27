@@ -1,0 +1,52 @@
+{
+  "name": "ethio-qr-sdk",
+  "version": "1.0.0",
+  "description": "NBE/EthSwitch-compliant EMVCo QR code generator for Ethiopian interoperable P2M payments (IPS ET)",
+  "author": "Robel Andro",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/EthioQR.js",
+  "module": "./dist/EthioQR.js",
+  "types": "./dist/EthioQR.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/EthioQR.js",
+      "types": "./dist/EthioQR.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ethiopia",
+    "qr",
+    "emvco",
+    "payment",
+    "nbe",
+    "ethswitch",
+    "ips-et",
+    "p2m",
+    "qr-code",
+    "interoperable"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/robelandro/ethio-qr-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/robelandro/ethio-qr-sdk/issues"
+  },
+  "homepage": "https://github.com/robelandro/ethio-qr-sdk#readme",
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "qrcode": "^1.5.4"
+  }
+}
