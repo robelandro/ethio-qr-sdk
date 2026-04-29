@@ -202,9 +202,16 @@ export class EthioQR {
      * Handles all tag ordering, length encoding, and CRC automatically.
      */
     public static buildPayload(opts: EthioQROptions): string {
-        const poi = opts.type === 'Static' ? '11' : '12';
+        const poi      = opts.type === 'Static' ? '11' : '12';
         const currency = opts.currencyCode ?? '230';
         const country  = opts.countryCode  ?? 'ET';
+
+        // Normalize additionalData: treat an object where every value is
+        // undefined/null/'' the same as no additionalData at all.
+        const rawAD = opts.additionalData;
+        const additionalData = rawAD && Object.values(rawAD).some(v => v !== undefined && v !== null && v !== '')
+            ? rawAD
+            : undefined;
 
         let payload =
             EthioQR.tlv('00', '01') +                          // PFI
@@ -212,17 +219,16 @@ export class EthioQR {
             EthioQR.buildIpsEtMAI(opts.ipsEtAccount) +         // Tag 28 – IPS ET MAI
             EthioQR.tlv('52', opts.merchantCategoryCode) +     // MCC
             EthioQR.tlv('53', currency) +                      // Currency
-            (opts.amount !== undefined ? EthioQR.tlv('54', opts.amount) : '') + // Amount
+            (opts.amount !== undefined ? EthioQR.tlv('54', opts.amount) : '') +
             (opts.convenienceFee ? EthioQR.buildConvenienceFee(opts.convenienceFee) : '') +
             EthioQR.tlv('58', country) +                       // Country Code
-            EthioQR.tlv('59', String(opts.merchantName).slice(0, 25)) + // Merchant Name
-            EthioQR.tlv('60', String(opts.merchantCity).slice(0, 15)) + // Merchant City
-            (opts.additionalData ? EthioQR.buildAdditionalData(opts.additionalData) : '') +
+            EthioQR.tlv('59', String(opts.merchantName).slice(0, 25)) +
+            EthioQR.tlv('60', String(opts.merchantCity).slice(0, 15)) +
+            (additionalData ? EthioQR.buildAdditionalData(additionalData) : '') +
             (opts.languageTemplate ? EthioQR.buildLanguageTemplate(opts.languageTemplate) : '') +
-            EthioQR.tlv('80', opts.transactionContext) +       // Context of Transaction
+            EthioQR.tlv('80', opts.transactionContext) +
             EthioQR.buildSchemeSpecific(opts.endToEndId, opts.transactionTypeCode);
 
-        // Append CRC tag + 4-char checksum
         const withCrcTag = payload + '6304';
         return withCrcTag + EthioQR.crc16(withCrcTag);
     }
