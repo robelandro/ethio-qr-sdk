@@ -23,26 +23,26 @@ export interface IpsEtAccountInfo {
 // ─── Additional Data Field (Tag 62 sub-tags) ─────────────────────────────────
 
 export interface AdditionalData {
-    billNumber?: string;          // 01 – up to 25
-    mobileNumber?: string;        // 02 – up to 25
-    storeLabel?: string;          // 03 – up to 25
-    loyaltyNumber?: string;       // 04 – up to 25
-    referenceLabel?: string;      // 05 – up to 25
-    customerLabel?: string;       // 06 – up to 25
-    terminalLabel?: string;       // 07 – up to 25
-    purposeOfTransaction?: string;// 08 – up to 25 (mandatory per EthSwitch)
+    billNumber?: string;             // 01 – up to 25
+    mobileNumber?: string;           // 02 – up to 25
+    storeLabel?: string;             // 03 – up to 25
+    loyaltyNumber?: string;          // 04 – up to 25
+    referenceLabel?: string;         // 05 – up to 25
+    customerLabel?: string;          // 06 – up to 25
+    terminalLabel?: string;          // 07 – up to 25
+    purposeOfTransaction?: string;   // 08 – up to 25 (mandatory per EthSwitch)
     additionalCustomerData?: string; // 09 – A/M/E flags
-    merchantTaxId?: string;       // 10 – up to 25
-    merchantChannel?: string;     // 11 – 3 chars
-    dueDate?: string;             // 50 – DDMMYYYY
-    amountAfterDueDate?: string;  // 51 – up to 13
+    merchantTaxId?: string;          // 10 – up to 25
+    merchantChannel?: string;        // 11 – 3 chars
+    dueDate?: string;                // 50 – DDMMYYYY
+    amountAfterDueDate?: string;     // 51 – up to 13
 }
 
 // ─── Convenience Fee (Tags 55/56/57) ─────────────────────────────────────────
 
 export type ConvenienceFeeType =
-    | { type: 'prompt' }                    // 01 – customer enters tip
-    | { type: 'fixed'; amount: string }     // 02 – fixed amount in Tag 56
+    | { type: 'prompt' }                       // 01 – customer enters tip
+    | { type: 'fixed'; amount: string }        // 02 – fixed amount in Tag 56
     | { type: 'percentage'; percent: string }; // 03 – % in Tag 57
 
 // ─── Merchant Language Template (Tag 64) ─────────────────────────────────────
@@ -105,8 +105,17 @@ export interface EthioQROptions {
 // ─── Decode Result ───────────────────────────────────────────────────────────
 
 export interface DecodeResult {
-    /** Fully reconstructed options object — pass straight back into generate() */
+    /**
+     * Fully reconstructed options object.
+     * Note: passing this back into buildPayload() re-encodes tags in standard
+     * order. Use `payload` from this result if you need the exact original bytes.
+     */
     options: Omit<EthioQROptions, 'imageOptions'>;
+    /**
+     * The payload reconstructed from the decoded data, preserving the original
+     * tag order byte-for-byte. Use this for round-trip comparison.
+     */
+    payload: string;
     /** CRC check: true = payload is intact, false = payload is corrupted */
     crcValid: boolean;
 }
@@ -123,7 +132,6 @@ export class EthioQR {
         return `${tag}${String(v.length).padStart(2, '0')}${v}`;
     }
 
-    /** Build a nested TLV container: tag wraps inner TLV string */
     private static tlvContainer(tag: string, inner: string): string {
         if (!inner) return '';
         return EthioQR.tlv(tag, inner);
@@ -142,9 +150,33 @@ export class EthioQR {
         return (crc & 0xFFFF).toString(16).toUpperCase().padStart(4, '0');
     }
 
+    // ── TLV parser ────────────────────────────────────────────────────────────
+
+    /**
+     * Parse a TLV string into an ordered array of [tag, value] pairs.
+     * Preserves the original tag order from the source payload.
+     */
+    private static parseTLV(data: string): Array<[string, string]> {
+        const entries: Array<[string, string]> = [];
+        let i = 0;
+        while (i < data.length) {
+            if (i + 4 > data.length) break;
+            const tag = data.slice(i, i + 2);
+            const len = parseInt(data.slice(i + 2, i + 4), 10);
+            if (isNaN(len)) break;
+            const value = data.slice(i + 4, i + 4 + len);
+            entries.push([tag, value]);
+            i += 4 + len;
+        }
+        return entries;
+    }
+
+    private static tlvMap(entries: Array<[string, string]>): Map<string, string> {
+        return new Map(entries);
+    }
+
     // ── Segment builders ─────────────────────────────────────────────────────
 
-    /** Tag 28 – IPS ET Merchant Account Information */
     private static buildIpsEtMAI(info: IpsEtAccountInfo): string {
         const inner =
             EthioQR.tlv('00', info.guid) +
@@ -153,16 +185,15 @@ export class EthioQR {
         return EthioQR.tlvContainer('28', inner);
     }
 
-    /** Tags 55/56/57 – Convenience Fee */
     private static buildConvenienceFee(fee: ConvenienceFeeType): string {
         switch (fee.type) {
-            case 'prompt':      return EthioQR.tlv('55', '01');
-            case 'fixed':       return EthioQR.tlv('55', '02') + EthioQR.tlv('56', fee.amount);
-            case 'percentage':  return EthioQR.tlv('55', '03') + EthioQR.tlv('57', fee.percent);
+            case 'prompt':     return EthioQR.tlv('55', '01');
+            case 'fixed':      return EthioQR.tlv('55', '02') + EthioQR.tlv('56', fee.amount);
+            case 'percentage': return EthioQR.tlv('55', '03') + EthioQR.tlv('57', fee.percent);
         }
     }
 
-    /** Tag 62 – Additional Data Field Template */
+    /** Emit Tag 62 in standard order (01→02→...→11→50→51) */
     private static buildAdditionalData(data: AdditionalData): string {
         const inner =
             EthioQR.tlv('01', data.billNumber) +
@@ -181,7 +212,6 @@ export class EthioQR {
         return EthioQR.tlvContainer('62', inner);
     }
 
-    /** Tag 64 – Merchant Information Language Template */
     private static buildLanguageTemplate(tmpl: MerchantLanguageTemplate): string {
         const inner =
             EthioQR.tlv('00', tmpl.languagePreference) +
@@ -190,7 +220,6 @@ export class EthioQR {
         return EthioQR.tlvContainer('64', inner);
     }
 
-    /** Tags 84/85 – Scheme Specific (Dynamic RTP) */
     private static buildSchemeSpecific(endToEndId?: string, ttc?: string): string {
         return EthioQR.tlv('84', endToEndId) + EthioQR.tlv('85', ttc);
     }
@@ -199,29 +228,28 @@ export class EthioQR {
 
     /**
      * Build the raw EMVCo-compliant payload string from options.
-     * Handles all tag ordering, length encoding, and CRC automatically.
+     * Tags are emitted in standard NBE/EthSwitch order.
      */
     public static buildPayload(opts: EthioQROptions): string {
         const poi      = opts.type === 'Static' ? '11' : '12';
         const currency = opts.currencyCode ?? '230';
         const country  = opts.countryCode  ?? 'ET';
 
-        // Normalize additionalData: treat an object where every value is
-        // undefined/null/'' the same as no additionalData at all.
+        // Treat additionalData where every value is undefined/null/'' as absent
         const rawAD = opts.additionalData;
-        const additionalData = rawAD && Object.values(rawAD).some(v => v !== undefined && v !== null && v !== '')
-            ? rawAD
-            : undefined;
+        const additionalData = rawAD && Object.values(rawAD).some(
+            v => v !== undefined && v !== null && v !== ''
+        ) ? rawAD : undefined;
 
-        let payload =
-            EthioQR.tlv('00', '01') +                          // PFI
-            EthioQR.tlv('01', poi) +                           // Point of Initiation
-            EthioQR.buildIpsEtMAI(opts.ipsEtAccount) +         // Tag 28 – IPS ET MAI
-            EthioQR.tlv('52', opts.merchantCategoryCode) +     // MCC
-            EthioQR.tlv('53', currency) +                      // Currency
+        const body =
+            EthioQR.tlv('00', '01') +
+            EthioQR.tlv('01', poi) +
+            EthioQR.buildIpsEtMAI(opts.ipsEtAccount) +
+            EthioQR.tlv('52', opts.merchantCategoryCode) +
+            EthioQR.tlv('53', currency) +
             (opts.amount !== undefined ? EthioQR.tlv('54', opts.amount) : '') +
             (opts.convenienceFee ? EthioQR.buildConvenienceFee(opts.convenienceFee) : '') +
-            EthioQR.tlv('58', country) +                       // Country Code
+            EthioQR.tlv('58', country) +
             EthioQR.tlv('59', String(opts.merchantName).slice(0, 25)) +
             EthioQR.tlv('60', String(opts.merchantCity).slice(0, 15)) +
             (additionalData ? EthioQR.buildAdditionalData(additionalData) : '') +
@@ -229,23 +257,20 @@ export class EthioQR {
             EthioQR.tlv('80', opts.transactionContext) +
             EthioQR.buildSchemeSpecific(opts.endToEndId, opts.transactionTypeCode);
 
-        const withCrcTag = payload + '6304';
+        const withCrcTag = body + '6304';
         return withCrcTag + EthioQR.crc16(withCrcTag);
     }
 
     /**
      * Generate a QR code as a Base64 Data URI from options.
-     * Returns both the raw payload string and the image data URI.
      */
     public static async generate(opts: EthioQROptions): Promise<QRResult> {
         const payload = EthioQR.buildPayload(opts);
-
         const imageOpts: QRCode.QRCodeToDataURLOptions = {
             errorCorrectionLevel: 'M',
             margin: 2,
             ...opts.imageOptions,
         };
-
         try {
             const base64 = await QRCode.toDataURL(payload, imageOpts);
             return { payload, base64 };
@@ -255,20 +280,14 @@ export class EthioQR {
         }
     }
 
-    /**
-     * Convenience: generate a Static QR (no amount embedded).
-     * The customer's app will prompt for the amount at scan time.
-     */
+    /** Generate a Static QR — no amount embedded. */
     public static async generateStatic(
         opts: Omit<EthioQROptions, 'type' | 'amount'>
     ): Promise<QRResult> {
         return EthioQR.generate({ ...opts, type: 'Static' });
     }
 
-    /**
-     * Convenience: generate a Dynamic QR (amount embedded, single-use).
-     * Amount is required.
-     */
+    /** Generate a Dynamic QR — amount is required and embedded. */
     public static async generateDynamic(
         opts: Omit<EthioQROptions, 'type'> & { amount: string | number }
     ): Promise<QRResult> {
@@ -278,103 +297,69 @@ export class EthioQR {
     // ── Decoder ───────────────────────────────────────────────────────────────
 
     /**
-     * Parse a flat TLV string into a Map<tag, value>.
-     * Each entry is: 2-char tag | 2-char decimal length | value
-     */
-    private static parseTLV(data: string): Map<string, string> {
-        const map = new Map<string, string>();
-        let i = 0;
-        while (i < data.length) {
-            if (i + 4 > data.length) break;
-            const tag = data.slice(i, i + 2);
-            const len = parseInt(data.slice(i + 2, i + 4), 10);
-            if (isNaN(len)) break;
-            const value = data.slice(i + 4, i + 4 + len);
-            map.set(tag, value);
-            i += 4 + len;
-        }
-        return map;
-    }
-
-    /**
      * Decode a raw EMVCo payload string back into an EthioQROptions object.
      *
-     * @param payload - The raw QR payload string (e.g. from `result.payload`)
-     * @returns DecodeResult with reconstructed options and a CRC validity flag
-     * @throws if the payload is missing required tags (00, 28, 52, 59, 60)
+     * The returned `payload` field is reconstructed byte-for-byte from the
+     * original, preserving tag order from any source system. Use it for
+     * round-trip comparison instead of re-calling buildPayload().
      *
      * @example
-     * const { options, crcValid } = EthioQR.decode(result.payload);
-     * console.log(options.merchantName); // "My Shop"
-     * console.log(crcValid);             // true
+     * const { options, payload, crcValid } = EthioQR.decode(rawPayload);
+     * console.log(crcValid);          // true
+     * console.log(payload === rawPayload); // true — exact round-trip
      */
     public static decode(payload: string): DecodeResult {
 
         // ── CRC validation ───────────────────────────────────────────────────
-        // Last 4 chars are the CRC value; everything before (incl. "6304") is checked
-        const crcValue    = payload.slice(-4);
-        const crcBody     = payload.slice(0, -4);
-        const crcValid    = EthioQR.crc16(crcBody) === crcValue;
+        const crcValue = payload.slice(-4);
+        const crcBody  = payload.slice(0, -4);
+        const crcValid = EthioQR.crc16(crcBody) === crcValue;
 
-        // Strip the trailing CRC tag+value before parsing
-        const body = payload.slice(0, payload.lastIndexOf('6304'));
-        const root = EthioQR.parseTLV(body);
+        // Strip trailing CRC tag+value before parsing
+        const body        = payload.slice(0, payload.lastIndexOf('6304'));
+        const rootEntries = EthioQR.parseTLV(body);
+        const root        = EthioQR.tlvMap(rootEntries);
 
-        // ── Tag 00 – Payload Format Indicator ────────────────────────────────
+        // ── Required tags ─────────────────────────────────────────────────────
         if (!root.has('00')) throw new Error('Invalid payload: missing Tag 00 (PFI)');
 
-        // ── Tag 01 – Point of Initiation ─────────────────────────────────────
-        const poi  = root.get('01');
-        const type: QRType = poi === '12' ? 'Dynamic' : 'Static';
+        const type: QRType = root.get('01') === '12' ? 'Dynamic' : 'Static';
 
-        // ── Tag 28 – IPS ET Merchant Account Information ──────────────────────
         const mai28 = root.get('28');
         if (!mai28) throw new Error('Invalid payload: missing Tag 28 (IPS ET MAI)');
-        const maiTags = EthioQR.parseTLV(mai28);
+        const maiMap = EthioQR.tlvMap(EthioQR.parseTLV(mai28));
         const ipsEtAccount: IpsEtAccountInfo = {
-            guid:          maiTags.get('00') ?? '',
-            bic:           maiTags.get('01') ?? '',
-            accountNumber: maiTags.get('02') ?? '',
+            guid:          maiMap.get('00') ?? '',
+            bic:           maiMap.get('01') ?? '',
+            accountNumber: maiMap.get('02') ?? '',
         };
 
-        // ── Tag 52 – MCC ──────────────────────────────────────────────────────
         const merchantCategoryCode = root.get('52');
         if (!merchantCategoryCode) throw new Error('Invalid payload: missing Tag 52 (MCC)');
 
-        // ── Tag 53 – Currency ─────────────────────────────────────────────────
-        const currencyCode = root.get('53');
-
-        // ── Tag 54 – Amount ───────────────────────────────────────────────────
-        const amountRaw = root.get('54');
-        const amount    = amountRaw !== undefined ? amountRaw : undefined;
-
-        // ── Tags 55/56/57 – Convenience Fee ──────────────────────────────────
-        let convenienceFee: ConvenienceFeeType | undefined;
-        const feeIndicator = root.get('55');
-        if (feeIndicator === '01') {
-            convenienceFee = { type: 'prompt' };
-        } else if (feeIndicator === '02') {
-            convenienceFee = { type: 'fixed', amount: root.get('56') ?? '' };
-        } else if (feeIndicator === '03') {
-            convenienceFee = { type: 'percentage', percent: root.get('57') ?? '' };
-        }
-
-        // ── Tag 58 – Country Code ─────────────────────────────────────────────
-        const countryCode = root.get('58');
-
-        // ── Tag 59 – Merchant Name ────────────────────────────────────────────
         const merchantName = root.get('59');
         if (!merchantName) throw new Error('Invalid payload: missing Tag 59 (Merchant Name)');
 
-        // ── Tag 60 – Merchant City ────────────────────────────────────────────
         const merchantCity = root.get('60');
         if (!merchantCity) throw new Error('Invalid payload: missing Tag 60 (Merchant City)');
 
-        // ── Tag 62 – Additional Data Field ────────────────────────────────────
+        // ── Optional tags ─────────────────────────────────────────────────────
+        const currencyCode = root.get('53');
+        const amount       = root.get('54');
+
+        let convenienceFee: ConvenienceFeeType | undefined;
+        const feeIndicator = root.get('55');
+        if      (feeIndicator === '01') convenienceFee = { type: 'prompt' };
+        else if (feeIndicator === '02') convenienceFee = { type: 'fixed',      amount:  root.get('56') ?? '' };
+        else if (feeIndicator === '03') convenienceFee = { type: 'percentage', percent: root.get('57') ?? '' };
+
+        const countryCode = root.get('58');
+
+        // Tag 62 – parse field values for the options object
         let additionalData: AdditionalData | undefined;
         const raw62 = root.get('62');
         if (raw62) {
-            const t62 = EthioQR.parseTLV(raw62);
+            const t62 = EthioQR.tlvMap(EthioQR.parseTLV(raw62));
             const pick = (k: string) => t62.get(k) || undefined;
             additionalData = {
                 billNumber:             pick('01'),
@@ -391,17 +376,16 @@ export class EthioQR {
                 dueDate:                pick('50'),
                 amountAfterDueDate:     pick('51'),
             };
-            // Drop the object entirely if every field is undefined
             if (Object.values(additionalData).every(v => v === undefined)) {
                 additionalData = undefined;
             }
         }
 
-        // ── Tag 64 – Language Template ────────────────────────────────────────
+        // Tag 64 – language template
         let languageTemplate: MerchantLanguageTemplate | undefined;
         const raw64 = root.get('64');
         if (raw64) {
-            const t64 = EthioQR.parseTLV(raw64);
+            const t64 = EthioQR.tlvMap(EthioQR.parseTLV(raw64));
             languageTemplate = {
                 languagePreference:    t64.get('00') ?? '',
                 alternateMerchantName: t64.get('01') ?? '',
@@ -409,14 +393,33 @@ export class EthioQR {
             };
         }
 
-        // ── Tag 80 – Transaction Context ──────────────────────────────────────
-        const transactionContext = root.get('80') || undefined;
-
-        // ── Tags 84/85 – Scheme Specific ─────────────────────────────────────
+        const transactionContext  = root.get('80') || undefined;
         const endToEndId          = root.get('84') || undefined;
         const transactionTypeCode = root.get('85') || undefined;
 
-        // ── Assemble result ───────────────────────────────────────────────────
+        // ── Reconstruct payload preserving original tag order ─────────────────
+        // Replay every root-level tag in the order it appeared in the source.
+        // For container tags (62, 64) we also replay their inner bytes in order.
+        let rebuiltBody = '';
+        for (const [tag, value] of rootEntries) {
+            if (tag === '62') {
+                // Replay Tag 62 inner bytes in original order
+                const innerEntries = EthioQR.parseTLV(value);
+                const inner = innerEntries.map(([t, v]) => EthioQR.tlv(t, v)).join('');
+                rebuiltBody += EthioQR.tlvContainer('62', inner);
+            } else if (tag === '64') {
+                // Replay Tag 64 inner bytes in original order
+                const innerEntries = EthioQR.parseTLV(value);
+                const inner = innerEntries.map(([t, v]) => EthioQR.tlv(t, v)).join('');
+                rebuiltBody += EthioQR.tlvContainer('64', inner);
+            } else {
+                rebuiltBody += EthioQR.tlv(tag, value);
+            }
+        }
+        const withCrcTag     = rebuiltBody + '6304';
+        const rebuiltPayload = withCrcTag + EthioQR.crc16(withCrcTag);
+
+        // ── Assemble options ──────────────────────────────────────────────────
         const options: Omit<EthioQROptions, 'imageOptions'> = {
             type,
             ipsEtAccount,
@@ -434,6 +437,6 @@ export class EthioQR {
             ...(transactionTypeCode  && { transactionTypeCode }),
         };
 
-        return { options, crcValid };
+        return { options, payload: rebuiltPayload, crcValid };
     }
 }
