@@ -8,4 +8,5 @@ export type {
     ConvenienceFeeType,
     MerchantLanguageTemplate,
     EthioQROptions,
+    DecodeResult,
 } from './EthioQR';
