@@ -13,14 +13,14 @@ Ethiopia's National Bank (NBE) and EthSwitch have defined a unified QR code stan
 
 This SDK handles all the low-level complexity:
 
-- EMVCo TLV (Tag-Length-Value) encoding
+- EMVCo TLV (Tag-Length-Value) encoding **and decoding**
 - IPS ET Merchant Account Information (Tag 28) with GUID, BIC, and account sub-tags
 - Static vs Dynamic QR modes (POI `11` / `12`)
 - Convenience fees (prompt / fixed / percentage)
 - Additional data fields (bill number, purpose, due date, loyalty, etc.)
 - Alternate language template (e.g. Amharic merchant names)
 - Request-to-Pay (RTP) End-to-End ID
-- CRC-16/CCITT checksum (Tag 63)
+- CRC-16/CCITT checksum (Tag 63) — auto-calculated on encode, auto-verified on decode
 - QR image generation as Base64 Data URI
 
 ---
@@ -96,6 +96,28 @@ Full control — pass `type: 'Static' | 'Dynamic'` explicitly.
 ### `EthioQR.buildPayload(opts)`
 
 Returns only the raw EMVCo payload string without generating an image. Useful for server-side rendering or custom QR libraries.
+
+### `EthioQR.decode(payload)`
+
+Parses a raw EMVCo payload string back into an `EthioQROptions` object. Returns:
+
+```typescript
+interface DecodeResult {
+  options: EthioQROptions;  // Fully reconstructed options — pass back into generate()
+  crcValid: boolean;        // true = payload intact, false = corrupted
+}
+```
+
+**Example:**
+
+```typescript
+const { options, crcValid } = EthioQR.decode(payload);
+console.log(options.merchantName); // "My Shop"
+console.log(crcValid);             // true
+
+// Re-encode from decoded options
+const reEncoded = EthioQR.buildPayload({ ...options, type: options.type });
+```
 
 ---
 
@@ -240,6 +262,44 @@ const payload = EthioQR.buildPayload({
 });
 
 // Pass `payload` to any QR rendering library
+```
+
+### Decode a payload back to EthioQROptions
+
+Useful for reading a scanned QR, verifying a payload received from an external system, or inspecting what a QR contains.
+
+```typescript
+import { EthioQR } from 'ethio-qr-sdk';
+
+const { options, crcValid } = EthioQR.decode(payload);
+
+// Verify the payload wasn't corrupted
+console.log(crcValid);                        // true
+
+// Read individual fields
+console.log(options.type);                    // 'Static' | 'Dynamic'
+console.log(options.merchantName);            // 'My Shop'
+console.log(options.merchantCity);            // 'ADDIS ABABA'
+console.log(options.amount);                  // '450' (Dynamic only)
+console.log(options.ipsEtAccount.bic);        // 'CBETETAA'
+console.log(options.ipsEtAccount.accountNumber); // '0000171234567890'
+console.log(options.additionalData?.billNumber); // 'INV-001'
+console.log(options.convenienceFee);          // { type: 'percentage', percent: '10' }
+console.log(options.languageTemplate);        // { languagePreference: 'AM', ... }
+```
+
+### Decode then re-encode (round-trip)
+
+The decoded `options` object is fully compatible with all generate methods — pass it straight back in:
+
+```typescript
+const { options, crcValid } = EthioQR.decode(payload);
+
+if (!crcValid) throw new Error('QR payload is corrupted');
+
+// Re-generate image from decoded options
+const result = await EthioQR.generate({ ...options, type: options.type });
+console.log(result.base64); // fresh QR image
 ```
 
 ---
